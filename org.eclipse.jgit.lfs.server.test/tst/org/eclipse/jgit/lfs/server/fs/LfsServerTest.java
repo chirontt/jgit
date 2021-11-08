@@ -49,6 +49,7 @@ import org.eclipse.jgit.lfs.lib.Constants;
 import org.eclipse.jgit.lfs.lib.LongObjectId;
 import org.eclipse.jgit.lfs.server.LargeFileRepository;
 import org.eclipse.jgit.lfs.server.LfsProtocolServlet;
+import org.eclipse.jgit.lfs.server.RepositoryAccessor;
 import org.eclipse.jgit.lfs.test.LongObjectIdTestUtils;
 import org.eclipse.jgit.util.FS;
 import org.eclipse.jgit.util.FileUtils;
@@ -110,6 +111,12 @@ public abstract class LfsServerTest {
 					LfsRequest request, String path, String auth)
 					throws LfsException {
 				return repository;
+			}
+
+			@Override
+			protected RepositoryAccessor getRepositoryAccessor(String path)
+					throws LfsException {
+				return null;
 			}
 		};
 		app.addServlet(new ServletHolder(protocol), "/objects/batch");

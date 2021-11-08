@@ -55,7 +55,7 @@ import org.slf4j.LoggerFactory;
 /**
  * LFS protocol handler implementing the LFS batch API [1]
  *
- * [1] https://github.com/github/git-lfs/blob/master/docs/api/v1/http-v1-batch.md
+ * [1] https://github.com/git-lfs/git-lfs/blob/main/docs/api/batch.md
  *
  * @since 4.3
  */
@@ -65,7 +65,8 @@ public abstract class LfsProtocolServlet extends HttpServlet {
 
 	private static final long serialVersionUID = 1L;
 
-	private static final String CONTENTTYPE_VND_GIT_LFS_JSON =
+	/** content type supported by LFS APIs */
+	public static final String CONTENTTYPE_VND_GIT_LFS_JSON =
 			"application/vnd.git-lfs+json; charset=utf-8"; //$NON-NLS-1$
 
 	private static final int SC_RATE_LIMIT_EXCEEDED = 429;
@@ -112,7 +113,31 @@ public abstract class LfsProtocolServlet extends HttpServlet {
 			LfsRequest request, String path, String auth) throws LfsException;
 
 	/**
-	 * LFS request.
+	 * Get the repository accessor for the given path.
+	 *
+	 * @param path
+	 *            the path
+	 * @return the accessor for determining read/write access to the main git
+	 *         repository
+	 * @throws org.eclipse.jgit.lfs.errors.LfsException
+	 *             implementations should throw more specific exceptions to
+	 *             signal which type of error occurred:
+	 *             <dl>
+	 *             <dt>{@link org.eclipse.jgit.lfs.errors.LfsRepositoryNotFound}</dt>
+	 *             <dd>when the repository does not exist for the user</dd>
+	 *             <dt>{@link org.eclipse.jgit.lfs.errors.LfsRepositoryReadOnly}</dt>
+	 *             <dd>when the user has read, but not write access.</dd>
+	 *             <dt>{@link org.eclipse.jgit.lfs.errors.LfsUnavailable}</dt>
+	 *             <dd>when LFS is not available</dd>
+	 *             <dt>{@link org.eclipse.jgit.lfs.errors.LfsException}</dt>
+	 *             <dd>when an unexpected internal server error occurred</dd>
+	 *             </dl>
+	 */
+	protected abstract RepositoryAccessor getRepositoryAccessor(String path)
+			throws LfsException;
+
+	/**
+	 * LFS request (LFS Batch API v2.4)
 	 *
 	 * @since 4.5
 	 */
@@ -120,6 +145,16 @@ public abstract class LfsProtocolServlet extends HttpServlet {
 		private String operation;
 
 		private List<LfsObject> objects;
+
+		// optional object describing the server ref that the objects belong to
+		// (to support Git server authentication schemes that take the refspec
+		// into account.)
+		private LfsRef ref;
+
+		// optional identifiers for transfer adapters that the client has
+		// configured. If omitted, the basic transfer adapter MUST be assumed by
+		// the server.
+		private List<String> transfers;
 
 		/**
 		 * Get the LFS operation.
@@ -137,6 +172,24 @@ public abstract class LfsProtocolServlet extends HttpServlet {
 		 */
 		public List<LfsObject> getObjects() {
 			return objects;
+		}
+
+		/**
+		 * Get the ref that the objects belong to.
+		 *
+		 * @return the ref
+		 */
+		public LfsRef getRef() {
+			return ref;
+		}
+
+		/**
+		 * Get the list of transfer adapters.
+		 *
+		 * @return the list of transfer adapters
+		 */
+		public List<String> getTransfers() {
+			return transfers;
 		}
 
 		/**
@@ -164,6 +217,38 @@ public abstract class LfsProtocolServlet extends HttpServlet {
 		}
 	}
 
+	/**
+	 * Check the read/write access to the git repository.
+	 *
+	 * @param lfsRequest
+	 * @param path
+	 * @param username
+	 * @throws LfsException
+	 */
+	protected void checkAccessToMainRepository(LfsRequest lfsRequest,
+			String path, String username) throws LfsException {
+		// check if the transfer property contains "basic"
+		// as this LFS server only supports "basic" transfer
+		List<String> transfers = lfsRequest.getTransfers();
+		if (transfers != null && !transfers.contains("basic")) { //$NON-NLS-1$
+			throw new LfsValidationError(
+					"Missing 'basic' in transfer property: " + transfers); //$NON-NLS-1$
+		}
+
+		RepositoryAccessor repoAccessor = getRepositoryAccessor(path);
+		if (repoAccessor == null) {
+			return;
+		}
+
+		LfsRef ref = lfsRequest.getRef();
+		String refName = ref == null ? null : ref.getName();
+		if (lfsRequest.isDownload()) {
+			repoAccessor.checkReadAccess(refName, username);
+		} else if (lfsRequest.isUpload()) {
+			repoAccessor.checkWriteAccess(refName, username);
+		}
+	}
+
 	/** {@inheritDoc} */
 	@Override
 	protected void doPost(HttpServletRequest req, HttpServletResponse res)
@@ -179,6 +264,8 @@ public abstract class LfsProtocolServlet extends HttpServlet {
 		res.setContentType(CONTENTTYPE_VND_GIT_LFS_JSON);
 		LargeFileRepository repo = null;
 		try {
+			checkAccessToMainRepository(request, path,
+					LfsUtils.getUsername(req));
 			repo = getLargeFileRepository(request, path,
 					req.getHeader(HDR_AUTHORIZATION));
 			if (repo == null) {

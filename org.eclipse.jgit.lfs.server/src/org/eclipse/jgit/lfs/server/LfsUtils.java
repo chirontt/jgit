@@ -1,3 +1,12 @@
+/*
+ * Copyright (C) 2021, Tue Ton <chirontt@gmail.com>
+ *
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Distribution License v. 1.0 which is available at
+ * https://www.eclipse.org/org/documents/edl-v10.php.
+ *
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
 package org.eclipse.jgit.lfs.server;
 
 import static org.eclipse.jgit.util.HttpSupport.HDR_AUTHORIZATION;
